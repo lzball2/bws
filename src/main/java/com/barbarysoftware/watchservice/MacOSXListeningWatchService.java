@@ -6,6 +6,9 @@ import com.sun.jna.Pointer;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.Normalizer;
 import java.util.*;
 
 /**
@@ -106,7 +109,7 @@ class MacOSXListeningWatchService extends AbstractWatchService {
             int length = numEvents.intValue();
 
             for (int i = 0; i < length; i++) {
-                String eventPath = eventPaths.getStringArray(0, length)[i];
+                String eventPath = Normalizer.normalize(eventPaths.getStringArray(0, length)[i], Normalizer.Form.NFC);
                 int eventFlag = eventFlags.getIntArray(0, length)[i];
 
                 File file = new File(eventPath);
@@ -119,7 +122,6 @@ class MacOSXListeningWatchService extends AbstractWatchService {
 
                 if ((kFSEventStreamEventFlagItemRemoved & eventFlag) != 0) {
                     if (watchKey.isReportDeleteEvents()) {
-                        System.out.println(file.getAbsolutePath());
                         watchKey.signalEvent(StandardWatchEventKind.ENTRY_DELETE, file);
                     }
                 }
@@ -131,15 +133,31 @@ class MacOSXListeningWatchService extends AbstractWatchService {
                 }
 
                 if ((kFSEventStreamEventFlagItemRenamed & eventFlag) != 0) {
-                    if (!file.exists()) {
-                        if (watchKey.isReportRenameFromEvents()) {
-                            watchKey.signalEvent(ExtendedWatchEventKind.ENTRY_RENAME_FROM, file);
+                    Path filePath = Paths.get(file.getPath());
+
+                    try {
+                        if (file.exists()) {
+                            Path realFilePath = filePath.toRealPath();
+
+                            Path realFileNameFilePath = realFilePath.getFileName();
+
+                            String realFilePathName = realFileNameFilePath.toString();
+
+                            if (eventPath.endsWith(realFilePathName)) {
+                                if (watchKey.isReportRenameToEvents()) {
+                                    watchKey.signalEvent(ExtendedWatchEventKind.ENTRY_RENAME_TO, file);
+                                }
+
+                                continue;
+                            }
                         }
                     }
-                    else {
-                        if (watchKey.isReportRenameToEvents()) {
-                            watchKey.signalEvent(ExtendedWatchEventKind.ENTRY_RENAME_TO, file);
-                        }
+                    catch (Exception e) {
+                        continue;
+                    }
+
+                    if (watchKey.isReportRenameFromEvents()) {
+                        watchKey.signalEvent(ExtendedWatchEventKind.ENTRY_RENAME_FROM, file);
                     }
                 }
             }
